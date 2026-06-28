@@ -1,0 +1,18 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/data/*.db
+*.egg-info/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+backend/.env
+
+# OS
+.DS_Store
