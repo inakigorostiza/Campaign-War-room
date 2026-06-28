@@ -28,8 +28,37 @@ Coupler.io is the **ingestion layer**, not a streaming API:
   which recomputes state and broadcasts a refresh over SSE.
 
 `WARROOM_SOURCE=seed` runs the whole thing on local sample data (with an injected
-Meta/Summer-Sale CPA spike). Flip to `WARROOM_SOURCE=coupler` + a
-`COUPLER_ACCESS_TOKEN` to read live flows via MCP — no other code changes.
+Meta/Summer-Sale CPA spike). Flip to `WARROOM_SOURCE=coupler` to read live flows
+via MCP — see **Connecting real sources** below.
+
+## Connecting real sources (Coupler.io MCP)
+
+The live path pulls real rows from the Coupler MCP server, maps them to the
+canonical `ads_daily` schema, and runs the same anomaly/narrative pipeline.
+Requires **Docker** running (the MCP server is a container) and the **Flask
+backend** — the Vercel serverless deploy is seed-only.
+
+1. **Build Coupler flows** for Meta Ads / Google Ads / TikTok into one dataset,
+   scheduled ~15 min. Generate an MCP **Personal Access Token** at
+   `app.coupler.io/app/mcp/`.
+2. **Discover your schema** — set `COUPLER_ACCESS_TOKEN` in `backend/.env`, then:
+   ```bash
+   python -m warroom.coupler_check                 # lists MCP tools + your data flows
+   python -m warroom.coupler_check <your_table>    # previews rows + detected columns
+   ```
+3. **Configure mapping** in `backend/.env` (the check tool prints exactly what to set):
+   - `WARROOM_SOURCE=coupler`
+   - `COUPLER_DATAFLOW` / `COUPLER_TABLE` — which flow + table to read
+   - `COUPLER_COLMAP` — JSON mapping your columns to canonical fields
+     (`date, channel, campaign, country, spend, impressions, clicks, conversions, revenue`)
+   - `COUPLER_CHANNEL_DEFAULT` — channel label if a flow is single-platform
+4. **Run** `python -m warroom.app`. Country values are auto-placed on the globe via
+   `warroom/geo.py` (extend it for markets it doesn't cover).
+5. **Push refreshes** by pointing Coupler's *outgoing webhook* at
+   `POST <backend>/api/webhook/coupler`.
+
+> BigQuery-direct is also a clean option (Coupler → BigQuery → a `BigQuerySource`).
+> Ask if you want that wired instead of / alongside MCP.
 
 ## Run it
 
