@@ -14,6 +14,16 @@ export default function Globe({ state, pings }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>(null);
   const [size, setSize] = useState({ w: 700, h: 700 });
+  const [countries, setCountries] = useState<any[]>([]);
+
+  // Load vendored world geometry (same-origin, no CORS) -> dotted landmasses,
+  // so the sphere clearly reads as Earth.
+  useEffect(() => {
+    fetch("/countries.geojson")
+      .then((r) => r.json())
+      .then((d) => setCountries(d.features ?? []))
+      .catch(() => setCountries([]));
+  }, []);
 
   // Size the globe to its container (never let it collapse to 0).
   useEffect(() => {
@@ -100,6 +110,11 @@ export default function Globe({ state, pings }: Props) {
         showAtmosphere
         atmosphereColor="#4d9bff"
         atmosphereAltitude={0.28}
+        hexPolygonsData={countries}
+        hexPolygonResolution={3}
+        hexPolygonMargin={0.3}
+        hexPolygonAltitude={0.012}
+        hexPolygonColor={() => "rgba(150, 200, 255, 0.55)"}
         arcsData={arcs}
         arcColor={"color" as any}
         arcStroke={0.7}

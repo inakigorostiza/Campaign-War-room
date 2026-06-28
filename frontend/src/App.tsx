@@ -83,8 +83,15 @@ export default function App() {
           >
             <Globe state={state} pings={pings} />
           </ErrorBoundary>
+          <div className="globe-legend">
+            <div className="legend-title">Conversions → HQ (Madrid)</div>
+            <div className="legend-row"><span className="lg-dot" style={{ background: "#1da1ff" }} />Meta</div>
+            <div className="legend-row"><span className="lg-dot" style={{ background: "#ffd166" }} />Google</div>
+            <div className="legend-row"><span className="lg-dot" style={{ background: "#ff4d8d" }} />TikTok</div>
+            <div className="legend-foot">each arc = a live conversion, from the campaign’s country to HQ</div>
+          </div>
           <div className="globe-caption">
-            Conversions flowing to HQ · {pings.length} live signals
+            {pings.length} conversions in flight
           </div>
         </section>
 
