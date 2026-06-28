@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import GlobeGL from "react-globe.gl";
+import * as THREE from "three";
 import type { DashboardState } from "../types";
 import { channelColor } from "../types";
 import { type LivePing, IS_SNAPSHOT } from "../hooks/useWarRoomStream";
@@ -8,9 +9,6 @@ interface Props {
   state: DashboardState | null;
   pings: LivePing[];
 }
-
-// Dark "city lights" Earth — clearly reads as a globe against the navy bg.
-const EARTH_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-night.jpg";
 
 export default function Globe({ state, pings }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -44,6 +42,19 @@ export default function Globe({ state, pings }: Props) {
     controls.maxDistance = 520;
     g.pointOfView({ lat: 25, lng: -20, altitude: 2.3 }, 0);
   }, []);
+
+  // Self-contained, clearly-visible globe material (no external texture, so it
+  // always draws — an unreachable texture image would leave the globe blank).
+  const globeMaterial = useMemo(
+    () =>
+      new THREE.MeshPhongMaterial({
+        color: "#1d4e89",
+        emissive: "#0c2c52",
+        emissiveIntensity: 0.7,
+        shininess: 8,
+      }),
+    []
+  );
 
   const hub = state?.hub;
 
@@ -84,11 +95,11 @@ export default function Globe({ state, pings }: Props) {
         width={size.w}
         height={size.h}
         backgroundColor="rgba(0,0,0,0)"
-        globeImageUrl={EARTH_TEXTURE}
+        globeMaterial={globeMaterial}
         showGraticules
         showAtmosphere
-        atmosphereColor="#3a86ff"
-        atmosphereAltitude={0.25}
+        atmosphereColor="#4d9bff"
+        atmosphereAltitude={0.28}
         arcsData={arcs}
         arcColor={"color" as any}
         arcStroke={0.7}
