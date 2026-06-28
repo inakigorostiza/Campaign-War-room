@@ -16,3 +16,6 @@ backend/.env
 
 # OS
 .DS_Store
+
+# Vercel
+.vercel

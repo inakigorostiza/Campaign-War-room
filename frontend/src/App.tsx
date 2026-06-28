@@ -4,12 +4,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import KpiRail from "./components/KpiRail";
 import AnomalyCards from "./components/AnomalyCards";
 import NarrativePanel from "./components/NarrativePanel";
-import {
-  useWarRoomStream,
-  streamNarrative,
-  fetchNarrativeOnce,
-  IS_SNAPSHOT,
-} from "./hooks/useWarRoomStream";
+import { useWarRoomStream, fetchNarrativeOnce } from "./hooks/useWarRoomStream";
 
 export default function App() {
   const { connected, state, pings, refreshTick } = useWarRoomStream();
@@ -24,20 +19,16 @@ export default function App() {
     if (!haveState) return;
     if (!startedOnce.current) startedOnce.current = true;
 
-    setNarrative("");
     setStreaming(true);
-    if (IS_SNAPSHOT) {
-      fetchNarrativeOnce((full) => {
-        setNarrative(full);
-        setStreaming(false);
-      });
-      return;
-    }
-    const stop = streamNarrative(
-      (t) => setNarrative((prev) => prev + t),
-      () => setStreaming(false)
-    );
-    return stop;
+    let cancelled = false;
+    fetchNarrativeOnce((full) => {
+      if (cancelled) return;
+      setNarrative(full);
+      setStreaming(false);
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [haveState, refreshTick]);
 

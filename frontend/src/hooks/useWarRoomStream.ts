@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DashboardState, Ping } from "../types";
+import type { Arc, DashboardState, Ping } from "../types";
 
 /** A conversion ping enriched with a client id + birth time for the globe arcs. */
 export interface LivePing extends Ping {
@@ -9,19 +9,47 @@ export interface LivePing extends Ping {
 
 const PING_TTL_MS = 4000; // arcs fade out after this long
 const MAX_PINGS = 24;
+const POLL_MS = 5000; // re-pull dashboard state on this cadence
+const PULSE_MS = 1100; // emit client-side conversion pulses this often
+
+/** Static render mode (?snapshot): one-shot fetch, no polling / pulses. */
+const SNAPSHOT =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("snapshot");
 
 export interface StreamData {
   connected: boolean;
   state: DashboardState | null;
   pings: LivePing[];
-  refreshTick: number; // increments on every backend refresh -> re-pull narrative
+  refreshTick: number; // increments when the backend version changes -> re-pull narrative
 }
 
-/** Static render mode (?snapshot): one-shot fetch, no persistent SSE connection.
- *  Useful for demo thumbnails and headless screenshots. */
-const SNAPSHOT =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("snapshot");
+/** Sample conversion pings weighted by each campaign's conversions. */
+function samplePings(arcs: Arc[], pingId: { current: number }): LivePing[] {
+  if (!arcs.length) return [];
+  const weights = arcs.map((a) => Math.max(1, a.conversions));
+  const total = weights.reduce((s, w) => s + w, 0);
+  const n = 2 + Math.floor(Math.random() * 5);
+  const now = Date.now();
+  const out: LivePing[] = [];
+  for (let i = 0; i < n; i++) {
+    let r = Math.random() * total;
+    let idx = 0;
+    while (idx < arcs.length - 1 && (r -= weights[idx]) > 0) idx++;
+    const a = arcs[idx];
+    out.push({
+      channel: a.channel,
+      campaign: a.campaign,
+      country: a.country,
+      startLat: a.startLat,
+      startLng: a.startLng,
+      value: Math.round(45 + Math.random() * 45),
+      id: pingId.current++,
+      born: now,
+    });
+  }
+  return out;
+}
 
 export function useWarRoomStream(): StreamData {
   const [connected, setConnected] = useState(false);
@@ -29,66 +57,70 @@ export function useWarRoomStream(): StreamData {
   const [pings, setPings] = useState<LivePing[]>([]);
   const [refreshTick, setRefreshTick] = useState(0);
   const pingId = useRef(0);
+  const lastVersion = useRef<number | null>(null);
+  const stateRef = useRef<DashboardState | null>(null);
 
+  // Fetch + poll dashboard state.
   useEffect(() => {
+    let alive = true;
+
+    const pull = async () => {
+      try {
+        const res = await fetch("/api/state", { cache: "no-store" });
+        const s: DashboardState = await res.json();
+        if (!alive) return;
+        setConnected(true);
+        setState(s);
+        stateRef.current = s;
+        if (lastVersion.current === null) {
+          lastVersion.current = s.version;
+          setRefreshTick((t) => t + 1); // first load -> pull narrative
+        } else if (s.version !== lastVersion.current) {
+          lastVersion.current = s.version;
+          setRefreshTick((t) => t + 1);
+        }
+      } catch {
+        if (alive) setConnected(false);
+      }
+    };
+
+    pull();
     if (SNAPSHOT) {
-      fetch("/api/state")
-        .then((r) => r.json())
-        .then((s: DashboardState) => {
-          setState(s);
-          setConnected(true);
-          setRefreshTick(1);
-          // Seed a few static arcs so the globe shows conversion flows in the frame.
-          const now = Date.now();
-          setPings(
-            (s.arcs ?? []).slice(0, 8).map((a, i) => ({
-              channel: a.channel,
-              campaign: a.campaign,
-              country: a.country,
-              startLat: a.startLat,
-              startLng: a.startLng,
-              value: 60,
-              id: i,
-              born: now,
-            }))
-          );
-        })
-        .catch(() => setConnected(false));
-      return;
+      // Seed a few static arcs so the globe shows flows in the frame, then stop.
+      const seed = setTimeout(() => {
+        const s = stateRef.current;
+        if (!s) return;
+        const now = Date.now();
+        setPings(
+          (s.arcs ?? []).slice(0, 8).map((a, i) => ({
+            channel: a.channel, campaign: a.campaign, country: a.country,
+            startLat: a.startLat, startLng: a.startLng, value: 60, id: i, born: now,
+          }))
+        );
+      }, 400);
+      return () => {
+        alive = false;
+        clearTimeout(seed);
+      };
     }
 
-    const es = new EventSource("/api/stream");
-
-    es.addEventListener("open", () => setConnected(true));
-    es.addEventListener("error", () => setConnected(false));
-
-    es.addEventListener("state", (e) => {
-      setState(JSON.parse((e as MessageEvent).data));
-    });
-
-    es.addEventListener("refresh", () => {
-      setRefreshTick((t) => t + 1);
-    });
-
-    es.addEventListener("pulse", (e) => {
-      const { pings: incoming } = JSON.parse((e as MessageEvent).data) as { pings: Ping[] };
-      const now = Date.now();
-      const fresh: LivePing[] = incoming.map((p) => ({ ...p, id: pingId.current++, born: now }));
-      setPings((prev) => [...prev, ...fresh].slice(-MAX_PINGS));
-    });
-
-    return () => es.close();
+    const poll = setInterval(pull, POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(poll);
+    };
   }, []);
 
-  // Expire old pings so arcs don't accumulate forever (live mode only).
+  // Client-side conversion pulses (live mode only).
   useEffect(() => {
     if (SNAPSHOT) return;
     const iv = setInterval(() => {
+      const s = stateRef.current;
+      if (!s?.arcs?.length) return;
+      const fresh = samplePings(s.arcs, pingId);
       const cutoff = Date.now() - PING_TTL_MS;
-      setPings((prev) => (prev.some((p) => p.born < cutoff)
-        ? prev.filter((p) => p.born >= cutoff)
-        : prev));
-    }, 1000);
+      setPings((prev) => [...prev.filter((p) => p.born >= cutoff), ...fresh].slice(-MAX_PINGS));
+    }, PULSE_MS);
     return () => clearInterval(iv);
   }, []);
 
@@ -97,7 +129,7 @@ export function useWarRoomStream(): StreamData {
 
 export const IS_SNAPSHOT = SNAPSHOT;
 
-/** Snapshot-mode narrative: read the whole SSE briefing in one fetch (no live stream). */
+/** Read the whole SSE-formatted briefing in one fetch (works against Flask + Vercel). */
 export async function fetchNarrativeOnce(onText: (full: string) => void): Promise<void> {
   try {
     const res = await fetch("/api/narrative", { method: "POST" });
@@ -117,25 +149,4 @@ export async function fetchNarrativeOnce(onText: (full: string) => void): Promis
   } catch {
     onText("");
   }
-}
-
-/** Stream the Claude briefing for the current state via SSE (GET). */
-export function streamNarrative(
-  onToken: (text: string) => void,
-  onDone: () => void
-): () => void {
-  const es = new EventSource("/api/narrative");
-  es.addEventListener("token", (e) => {
-    const { text } = JSON.parse((e as MessageEvent).data);
-    onToken(text);
-  });
-  es.addEventListener("done", () => {
-    onDone();
-    es.close();
-  });
-  es.addEventListener("error", () => {
-    onDone();
-    es.close();
-  });
-  return () => es.close();
 }
